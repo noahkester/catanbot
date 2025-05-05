@@ -1,0 +1,18 @@
+{
+  "name": "Two Sheep Cheat",
+  "description": "View each players inventory",
+  "version": "1.0",
+  "manifest_version": 3,
+  "permissions": ["activeTab", "tabs", "scripting"],
+  "action": {
+    "default_popup": "twosheep.html",
+    "default_icon": "catan.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://twosheep.io/*"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ]
+}
