@@ -26,6 +26,12 @@ The extension parses the chat log to track:
 - Resource discards (when you have too many cards)
 - Robber steals
 
+## Screenshot
+
+![Extension in action](example.png)
+
+*See the extension displaying player resources in real-time*
+
 ## Installation
 
 1. Download or clone this repository
