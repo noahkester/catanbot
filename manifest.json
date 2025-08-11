@@ -5,7 +5,12 @@
   "manifest_version": 3,
   "permissions": ["activeTab", "tabs", "scripting"],
   "action": {
-    "default_icon": "catan.png"
+    "default_icon": {
+      "16": "catan2.jpg",
+      "32": "catan2.jpg",
+      "48": "catan2.jpg",
+      "128": "catan2.jpg"
+    }
   },
   "background": {
     "service_worker": "background.js"
