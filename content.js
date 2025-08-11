@@ -3,7 +3,7 @@ console.log("Content script loaded!");
 // Only declare constants if they don't already exist
 if (typeof BUILDING === 'undefined') {
   const BUILDING = {
-    developmentCard: "developmentCard",
+    devCard: "devCard",
     road: "road",
     settlement: "settlement",
     city: "city",
@@ -18,6 +18,7 @@ if (typeof RESOURCES === 'undefined') {
     ore: "ore",
     sheep: "sheep",
     wheat: "wheat",
+    unknown: "unknown"
   }
   window.RESOURCES = RESOURCES;
 }
@@ -43,6 +44,10 @@ if (typeof RESOURCE_FILES === 'undefined') {
     wheat: {
       "file": "/assets/wheat_icon-ece490c6.svg",
       "color": "rgb(232, 207, 51)"
+    },
+    unknown: {
+      "file": "/assets/unknown_icon-24d226d5.svg",
+      "color": "rgb(188, 187, 172)"
     }
   }
   window.RESOURCE_FILES = RESOURCE_FILES;
@@ -54,42 +59,59 @@ if (typeof ACTIONS === 'undefined') {
     trade: "trade",
     steal: "steal",
     receive: "receive",
+    discard: "discard"
   }
   window.ACTIONS = ACTIONS;
+}
+
+if (typeof combineResourceObjects === 'undefined') {
+  function combineResourceObjects(r1, r2) {
+    for (const [resource, count] of Object.entries(r2)) {
+      if (!(resource in r1)) {
+        r1[resource] = 0
+      }
+      r1[resource] += count
+    }
+    return r1
+  }
+  window.combineResourceObjects = combineResourceObjects
+}
+
+if (typeof resourceCount === 'undefined') {
+  function resourceCount(resources, negative = false) {
+    let map = {};
+    resources.forEach(resource => {
+      if (!(resource in map)) {
+        map[resource] = 0;
+      }
+      if (negative) {
+        map[resource] -= 1;
+      }
+      else {
+        map[resource] += 1;
+      }
+    })
+    return map;
+  }
+  window.resourceCount = resourceCount
 }
 
 // Only declare class if it doesn't already exist
 if (typeof CatanEvent === 'undefined') {
   class CatanEvent {
-    constructor(action, actionPlayer, targetPlayers, resources, building) {
+    constructor(action, player, resourceGroups, otherPlayers, building) {
       this.action = action;
-      this.actionPlayer = actionPlayer;
-      this.targetPlayers = targetPlayers;
-      this.resources = resources;
+      this.player = player;
+      this.resourceGroups = resourceGroups;
+      this.otherPlayers = otherPlayers;
       this.building = building;
-    }
-    
-    getResourceObject(negative = false) {
-      let map = {};
-      for (const resource of this.resources) {
-        if (!(resource in map)) {
-          map[resource] = 0;
-        }
-        if (negative) {
-          map[resource] -= 1;
-        }
-        else {
-          map[resource] += 1;
-        }
-      }
-      return map;
     }
 
     calcResourceDelta() {
       if (this.action == ACTIONS.build) {
-        if (this.building == BUILDING.developmentCard) {
+        if (this.building == BUILDING.devCard) {
           return {
-            [this.actionPlayer]: {
+            [this.player]: {
               [RESOURCES.wheat]: -1,
               [RESOURCES.sheep]: -1,
               [RESOURCES.ore]: -1
@@ -98,7 +120,7 @@ if (typeof CatanEvent === 'undefined') {
         }
         else if (this.building == BUILDING.road) {
           return {
-            [this.actionPlayer]: {
+            [this.player]: {
               [RESOURCES.wood]: -1,
               [RESOURCES.brick]: -1
             }
@@ -106,7 +128,7 @@ if (typeof CatanEvent === 'undefined') {
         }
         else if (this.building == BUILDING.settlement) {
           return {
-            [this.actionPlayer]: {
+            [this.player]: {
               [RESOURCES.wheat]: -1,
               [RESOURCES.sheep]: -1,
               [RESOURCES.brick]: -1,
@@ -116,7 +138,7 @@ if (typeof CatanEvent === 'undefined') {
         }
         else if (this.building == BUILDING.city) {
           return {
-            [this.actionPlayer]: {
+            [this.player]: {
               [RESOURCES.wheat]: -2,
               [RESOURCES.ore]: -3
             }
@@ -125,15 +147,41 @@ if (typeof CatanEvent === 'undefined') {
       }
       else if (this.action == ACTIONS.receive) {
         return {
-          [this.actionPlayer]: this.getResourceObject()
+          [this.player]: resourceCount(this.resourceGroups[0])
         }
       }
       else if (this.action == ACTIONS.steal) {
+        if (this.resourceGroups[0][0] == "unknown") {
+          return {
+            [this.player]: {"unknown": 1},
+            [this.otherPlayers[0]]: {"unknown": -1}
+          }
+        }
+        let stealDelta = {}
+        let i = 0
+        this.otherPlayers.forEach(player => {
+          stealDelta[player] = resourceCount(this.resourceGroups[i], true)
+          i += 1
+        })
+        let playerGained = {}
+        this.resourceGroups.forEach(resources => {
+          playerGained = combineResourceObjects(playerGained, resourceCount(resources))
+        })
+        stealDelta[this.player] = playerGained
+        return stealDelta
+      }
+      else if (this.action == ACTIONS.trade) {
         return {
-          [this.actionPlayer]: this.getResourceObject(),
-          [this.targetPlayers[0]]: this.getResourceObject(true),
+          [this.player]: combineResourceObjects(resourceCount(this.resourceGroups[1]), resourceCount(this.resourceGroups[0], true)),
+          [this.otherPlayers[0]]: combineResourceObjects(resourceCount(this.resourceGroups[0]), resourceCount(this.resourceGroups[1], true)),
         }
       }
+      else if (this.action == ACTIONS.discard) {
+        return {
+          [this.player]: resourceCount(this.resourceGroups[0], true)
+        }
+      }
+      return {}
     }
   }
   window.CatanEvent = CatanEvent;
@@ -149,43 +197,74 @@ if (typeof createCatanEvent === 'undefined') {
       "Placement",
       "rolled",
       "moved", // robber
-      "resigns"
+      "resigns",
+      "played a Knight",
+      "played road builder",
+      "played year of plenty",
+      "took longest road",
+      "took largest army" // todo: confirm this text, had to guess
     ]
     
     for (const filteredString of filteredStrings) {
       if (element.outerHTML.includes(filteredString)) {
-        // if (debug) {
-        //   console.log("Filtered element: ", element, "\nfor matching string: ", filteredString)
-        // }
+        if (debug && element.outerHTML.includes("Turn")) {
+          const text = element.querySelector(".dividerText").innerHTML;
+          console.log(text)
+        }
         return;
       }
     }
-    
-    let actionPlayer = "";
     let action = "";
-    let targetPlayers = [];
-    let resources = [];
+    let player = "";
+    let resourceGroups = [];
+    let otherPlayers = [];
     let building = "";
     
+    count = 0
+    resources = []
     for (const component of element.children) {
+      count += 1
       // Player
-      if (component.classList.contains("playerName")) {
-        if (action == ACTIONS.steal) {
-          targetPlayers.push(component.textContent)
+      if (component.textContent.includes("to the bank")) {
+        otherPlayers.push("bank")
+        if (resources.length > 0) {
+          resourceGroups.push(resources)
+        }
+        resources = []
+      }
+      else if (component.classList.contains("playerName")) {
+        // first playerName will always be the player
+        if (player == "") {
+          player = component.textContent
         }
         else {
-          actionPlayer = component.textContent;
+          otherPlayers.push(component.textContent)
         }
+        if (resources.length > 0) {
+          resourceGroups.push(resources)
+        }
+        resources = []
       }
       // Actions
-      else if (component.textContent.includes("built")) {
+      else if (component.textContent.includes("built") || component.textContent.includes("bought")) {
         action = ACTIONS.build;
       }
       else if (component.textContent.includes("received")) {
         action = ACTIONS.receive;
       }
+      else if (component.textContent.includes("and stole")) {
+        // Note: monopoloy is handled as a "steal" but remove the resource icon we previously collected
+        action = ACTIONS.steal;
+        resources = []
+      }
       else if (component.textContent.includes("stole")) {
         action = ACTIONS.steal;
+      }
+      else if (component.textContent.includes("traded")) {
+        action = ACTIONS.trade;
+      }
+      else if (component.textContent.includes("discarded")) {
+        action = ACTIONS.discard;
       }
       // Buildings
       else if (component.outerHTML.includes("settlement")) {
@@ -193,6 +272,12 @@ if (typeof createCatanEvent === 'undefined') {
       }
       else if (component.outerHTML.includes("road")) {
         building = BUILDING.road;
+      }
+      else if (component.outerHTML.includes("city")) {
+        building = BUILDING.city;
+      }
+      else if (component.outerHTML.includes("devcards")) {
+        building = BUILDING.devCard;
       }
       // Resources
       else if (component.outerHTML.includes("brick")) {
@@ -210,14 +295,25 @@ if (typeof createCatanEvent === 'undefined') {
       else if (component.outerHTML.includes("ore")) {
         resources.push(RESOURCES.ore)
       }
+      else if (component.outerHTML.includes("unknown_icon")) {
+        resources.push("unknown")
+      }
     }
-    return new CatanEvent(
+    if (resources.length > 0) {
+      resourceGroups.push(resources)
+    }
+    const event = new CatanEvent(
       action,
-      actionPlayer,
-      targetPlayers,
-      resources,
+      player,
+      resourceGroups,
+      otherPlayers,
       building
     )
+    if (debug) {
+      console.log("Event:", event)
+      console.log("ResourceDelta:", event.calcResourceDelta())
+    }
+    return event
   }
   window.createCatanEvent = createCatanEvent;
 }
@@ -225,6 +321,10 @@ if (typeof createCatanEvent === 'undefined') {
 if (typeof addResourceDelta === 'undefined') {
   function addResourceDelta(resources, resourceDelta) {
     for (const [player, delta] of Object.entries(resourceDelta)) {
+      if (player == "bank") {
+        // ignore the bank
+        continue
+      }
       if (!(player in resources)) {
         resources[player] = {
           brick: 0,
@@ -232,10 +332,38 @@ if (typeof addResourceDelta === 'undefined') {
           ore: 0,
           sheep: 0,
           wheat: 0,
+          unknown: 0,
         }
       }
       for (const [resource, count] of Object.entries(delta)) {
+        // this player lost an unknown resource, just subtract from all resources and add to unknown
+        if (resource == "unknown" && count == -1) {
+          subtracted_count = 0
+          for (const [resource2, count2] of Object.entries(resources[player])) {
+            if (resource2 != "unknown" && count2 > 0) {
+              resources[player][resource2] -= 1
+              subtracted_count += 1
+            }
+          }
+          resources[player]["unknown"] += (subtracted_count - 1)
+          // note: if unknown resource is stolen, there will only be 1 delta in this loop
+          break
+        }
+
         resources[player][resource] += count
+        // Note: this is done to account for unknown steals.
+        let escape = 10
+        while (resources[player][resource] < 0) {
+          resources[player]["unknown"] -= 1
+          resources[player][resource] += 1
+          escape -= 1
+          if (escape < 0) {
+            break
+          }
+        }
+        if (resources[player]["unknown"] < 0) {
+          console.log("unknown problem!")
+        }
       }
     }
     return resources
@@ -247,10 +375,8 @@ if (typeof calculateResources === 'undefined') {
   function calculateResources(resources, events) {
     for (const event of events) {
       let resourceDelta = event.calcResourceDelta()
-      if (debug) {
-        console.log(event)
-        console.log(resourceDelta)
-      }
+      // check for unknown resource deltas
+
       resources = addResourceDelta(resources, resourceDelta)
     }
     return resources
@@ -286,7 +412,7 @@ if (typeof generateHTMLforResources === 'undefined') {
     const smallSize = 24;
     const smallFontSize = 18
     resourceHTML = "";
-    const orderedResources = ["wood", "brick", "sheep", "wheat", "ore"]
+    const orderedResources = ["wood", "brick", "sheep", "wheat", "ore", "unknown"]
     orderedResources.forEach(resource => {
       countHTML = ""
       if (resource in resources) {
@@ -324,7 +450,6 @@ if (typeof injectResourceHTML === 'undefined') {
     // Get the first child of score-panels
     const nestedDiv1 = scorePanels.firstElementChild;
     if (!nestedDiv1) {
-      console.log('No children found in score-panels');
       return;
     }  
     
@@ -332,7 +457,6 @@ if (typeof injectResourceHTML === 'undefined') {
     for (let i = 0; i < nestedDiv1.children.length; i++) {
       const nestedDiv2 = nestedDiv1.children[i].firstElementChild; // id = score-red
       if (!nestedDiv2) {
-        console.log("No nested div2")
         return
       }
       
@@ -369,7 +493,6 @@ debug = true;
 var playerResources = {};
 
 function run() {
-  console.log("parseTab function called");
   let resources = {}
 
   playerNames = getPlayerNames()
@@ -381,6 +504,7 @@ function run() {
       ore: 0,
       sheep: 2,
       wheat: 2,
+      unknown: 0
     }
   }
 
