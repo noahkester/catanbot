@@ -3,7 +3,7 @@
   "description": "View each players inventory",
   "version": "1.0",
   "manifest_version": 3,
-  "permissions": ["activeTab", "tabs", "scripting"],
+  "permissions": ["activeTab", "scripting"],
   "action": {
     "default_icon": {
       "16": "catan2.jpg",
